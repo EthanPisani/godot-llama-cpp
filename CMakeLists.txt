@@ -27,9 +27,10 @@ if ( APPLE )
 endif()
 
 # Main project information
-project( GDExtensionTemplate
+project(  godot_llama_cpp
     LANGUAGES
         CXX
+        C
     VERSION
         0.1.0
 )
@@ -135,8 +136,33 @@ set_target_properties( godot-cpp
     PROPERTIES
         CXX_VISIBILITY_PRESET hidden    # visibility needs to be the same as the main library
 )
+# we want llama.cpp to be static but this lib needs to be shared
+set(BUILD_SHARED_LIBS OFF)
+# set fpic
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(GGML_VULKAN ON)
+add_subdirectory( extern/llama.cpp )
+set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
+set(BUILD_SHARED_LIBS ON)
 
+set_target_properties( llama
+    PROPERTIES
+        CXX_VISIBILITY_PRESET hidden    # visibility needs to be the same as the main library
+)
+set_target_properties( common
+    PROPERTIES
+        CXX_VISIBILITY_PRESET hidden    # visibility needs to be the same as the main library
+)
+target_include_directories( ${PROJECT_NAME}
+    PRIVATE
+        # extern/llama.cpp/include
+        # extern/llama.cpp
+        extern/llama.cpp/common
+)
 target_link_libraries( ${PROJECT_NAME}
     PRIVATE
         godot-cpp
+        llama
+        common
+        
 )
