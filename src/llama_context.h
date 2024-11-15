@@ -9,6 +9,18 @@
 #include <godot_cpp/classes/mutex.hpp>
 #include <godot_cpp/classes/node.hpp>
 #include <godot_cpp/classes/semaphore.hpp>
+#include <godot_cpp/classes/worker_thread_pool.hpp>
+#include <godot_cpp/templates/vector.hpp>
+#include <algorithm>
+#include <godot_cpp/classes/engine.hpp>
+#include <godot_cpp/classes/os.hpp>
+#include <godot_cpp/classes/worker_thread_pool.hpp>
+#include <godot_cpp/core/class_db.hpp>
+#include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/utility_functions.hpp>
+#include <godot_cpp/classes/mutex.hpp>
+#include <godot_cpp/classes/node.hpp>
+#include <godot_cpp/classes/semaphore.hpp>
 #include <godot_cpp/classes/thread.hpp>
 #include <godot_cpp/templates/vector.hpp>
 namespace godot {
@@ -23,9 +35,9 @@ class LlamaContext : public Node {
 
 private:
 	Ref<LlamaModel> model;
-	llama_context  ** g_ctx = nullptr;
-    gpt_sampler    ** g_smpl;
-	gpt_params     * g_params;
+	llama_context  * g_ctx = nullptr;
+    common_sampler    * g_smpl = nullptr;
+	common_params     * g_params;
     int32_t n_len = 1024;
 	int request_id = 0;
 	Vector<completion_request> completion_requests;

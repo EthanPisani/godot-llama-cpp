@@ -142,6 +142,7 @@ set(BUILD_SHARED_LIBS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(GGML_VULKAN ON)
 add_subdirectory( extern/llama.cpp )
+
 set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
 set(BUILD_SHARED_LIBS ON)
 
@@ -149,6 +150,9 @@ set_target_properties( llama
     PROPERTIES
         CXX_VISIBILITY_PRESET hidden    # visibility needs to be the same as the main library
 )
+add_subdirectory( extern/llama.cpp/common )
+
+
 set_target_properties( common
     PROPERTIES
         CXX_VISIBILITY_PRESET hidden    # visibility needs to be the same as the main library

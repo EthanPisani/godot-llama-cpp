@@ -1,7 +1,6 @@
 #include "llama_context.h"
 #include "llama.h"
 #include "llama_model.h"
-#include <algorithm>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/os.hpp>
 #include <godot_cpp/classes/worker_thread_pool.hpp>
@@ -58,17 +57,17 @@ void LlamaContext::_bind_methods() {
 LlamaContext::LlamaContext() {
 	// ctx_params = llama_context_default_params();
 
-    llama_context * ctx = nullptr;
-    gpt_sampler * smpl = nullptr;
+
+    // llama_context * ctx = nullptr;
+    // common_sampler * smpl = nullptr;
 
 
-    g_ctx = &ctx;
-    g_smpl = &smpl;
 	int32_t n_threads = OS::get_singleton()->get_processor_count();
 	
-	gpt_params params;
+	common_params params;
 	params.cpuparams.n_threads = n_threads;
     g_params = &params;
+	common_init();
 }
 
 void LlamaContext::_enter_tree() {
@@ -79,17 +78,18 @@ void LlamaContext::_enter_tree() {
 
 
 
-	mutex.instantiate();
-	semaphore.instantiate();
-	thread.instantiate();
+	// this->mutex.instantiate();
+	// this->semaphore.instantiate();
+	// this->thread.instantiate();
 
 	llama_backend_init();
 	llama_numa_init(ggml_numa_strategy::GGML_NUMA_STRATEGY_DISABLED);
-
+	
 }
 
 // need ctx, params, and model at this point
 void LlamaContext::load_context() {
+
 
 	UtilityFunctions::print(vformat("%s: Initializing llama context", __func__));
 	if (model->model == NULL) {
@@ -97,35 +97,47 @@ void LlamaContext::load_context() {
 		return;
 	}
 	UtilityFunctions::print(vformat("%s: Model loaded", __func__));
-	llama_context * ctx = nullptr;
-	ctx = *g_ctx;
+	
+	int32_t n_threads = OS::get_singleton()->get_processor_count();
+	
+	common_params params;
+	params.cpuparams.n_threads = n_threads;
+    
+	g_params = &params;
+	common_init();
 	// IMPORTANT: NEED TO MAKE SURE THE G PARAMS ARE SET BEFORE THIS POINT
 	if (&g_params == NULL) {
 		UtilityFunctions::printerr(vformat("%s: Failed to initialize llama context, g_params not defined", __func__));
 		return;
 	}
-	// TODO: figure out how to set the params from gpt_params
-	// llama_context_params ctx_params = llama_context_params_from_gpt_params(*g_params);
+	
+	// TODO: figure out how to set the params from common_params
+	// llama_context_params ctx_params = llama_context_params_from_common_params(*g_params);
 	llama_context_params ctx_params = llama_context_default_params();
 	UtilityFunctions::print(vformat("%s: Context created", __func__));
+
 	
-	
-	ctx = llama_new_context_with_model(model->model, ctx_params); // we use this because the model will already be loaded by godot in memory
-	if (ctx == NULL) {
+	g_ctx = llama_new_context_with_model(model->model, ctx_params); // we use this because the model will already be loaded by godot in memory
+	// g_ctx = &ctx;
+	if (g_ctx == NULL) {
 		UtilityFunctions::printerr(vformat("%s: Failed to initialize llama context, null ctx", __func__));
 		return;
 	}
 	
-	gpt_sampler * smpl = nullptr;
-	g_smpl = &smpl;
 	
 	UtilityFunctions::print(vformat("%s: Initializing llama sampler", __func__));
 	// TODO: for some reason it thinks this is a grammar
-	g_params->sparams.grammar = "\0"; // no grammar for now
 	UtilityFunctions::print(vformat("%s: Setting grammar", __func__));
+	UtilityFunctions::print(vformat("%s: this is the current grammar: %s", __func__, g_params->sparams.grammar.c_str()));
 
-	smpl = gpt_sampler_init(model->model, g_params->sparams);
-	if (!smpl) {
+	UtilityFunctions::print(vformat("%s: Initialized 0", __func__));
+	// print grammer
+	UtilityFunctions::print(vformat("%s: %s", __func__, g_params->sparams.grammar.c_str()));
+	g_smpl = common_sampler_init(model->model, g_params->sparams);
+
+
+	UtilityFunctions::print(vformat("%s: Initialized 1", __func__));
+	if (!g_smpl) {
 		UtilityFunctions::printerr(vformat("%s: Failed to initialize llama context, null smpl", __func__));
 		return;
 	}
@@ -136,13 +148,21 @@ void LlamaContext::load_context() {
 
 // everything should be initialized at this point
 void LlamaContext::start_thread() {
+	UtilityFunctions::print(vformat("%s: Starting thread", __func__));
 	if (!init_success) {
 		return;
 	}
-	thread->start(callable_mp(this, &LlamaContext::__thread_loop));
+	this->thread.instantiate();	
+	semaphore.instantiate();
+	mutex.instantiate();
+	UtilityFunctions::print(vformat("%s: Thread starting..", __func__));
+	this->thread->start(callable_mp(this, &LlamaContext::__thread_loop));
+	UtilityFunctions::print(vformat("%s: Thread started", __func__));
 }
 
 void LlamaContext::__thread_loop() {
+
+	
 	if (!init_success) {
 		return;
 	}
@@ -163,11 +183,15 @@ void LlamaContext::__thread_loop() {
 		mutex->unlock();
 
 		UtilityFunctions::print(vformat("%s: Running completion for prompt id: %d", __func__, req.id));
-		llama_context *ctx = *g_ctx;
-		gpt_sampler *smpl = *g_smpl;
-
-		std::vector<llama_token> request_tokens;
-		request_tokens = ::llama_tokenize(ctx, req.prompt.utf8().get_data(), true, true);
+		// get ctx from g_ctx
+		
+		UtilityFunctions::print(vformat("%s: Context loaded", __func__));
+		UtilityFunctions::print(vformat("%s: Sampler loaded", __func__));
+		std::vector<llama_token> request_tokens;	
+		UtilityFunctions::print(vformat("%s: Request tokens: %s", __func__, req.prompt.utf8().get_data()));
+		const std::string prompt_str = std::string(req.prompt.utf8().get_data());
+		request_tokens = common_tokenize(model->model, prompt_str, true, true);
+		UtilityFunctions::print(vformat("%s: Request tokens: %d", __func__, (int32_t)request_tokens.size()));
 
 		size_t shared_prefix_idx = 0;
 		auto diff = std::mismatch(context_tokens.begin(), context_tokens.end(), request_tokens.begin(), request_tokens.end());
@@ -176,8 +200,20 @@ void LlamaContext::__thread_loop() {
 		} else {
 			shared_prefix_idx = std::min(context_tokens.size(), request_tokens.size());
 		}
+		UtilityFunctions::print(vformat("%s: Shared prefix idx3: %d", __func__, (int32_t)shared_prefix_idx));
+		// make sure that ctx is actually pointing to a memort address of type llama_context
+		if (g_ctx == NULL) {
+			UtilityFunctions::printerr(vformat("%s: Failed to request completion, ctx not initialized", __func__));
+			continue;
+		}
+		// if the object ctx is pointing to is not of type llama_context, then this will fail
+		if (g_ctx != nullptr) {
+			// Example assuming `llama_context` has a member `int id;`
+			UtilityFunctions::print(vformat("%s: Context id", __func__));
+		}
 
-		bool rm_success = llama_kv_cache_seq_rm(ctx, -1, shared_prefix_idx, -1);
+		bool rm_success = llama_kv_cache_seq_rm(g_ctx, -1, shared_prefix_idx, -1);
+		UtilityFunctions::print(vformat("%s: Removing tokens from kv cache", __func__));
 		if (!rm_success) {
 			UtilityFunctions::printerr(vformat("%s: Failed to remove tokens from kv cache", __func__));
 			Dictionary response;
@@ -188,35 +224,44 @@ void LlamaContext::__thread_loop() {
 		}
 		context_tokens.erase(context_tokens.begin() + shared_prefix_idx, context_tokens.end());
 		request_tokens.erase(request_tokens.begin(), request_tokens.begin() + shared_prefix_idx);
-
+		// print the two batch sizes
+		UtilityFunctions::print(vformat("%s: Context tokens: %d", __func__, (int32_t)context_tokens.size()));
+		UtilityFunctions::print(vformat("%s: Request tokens: %d", __func__, (int32_t)request_tokens.size()));
+		UtilityFunctions::print(vformat("%s: N Batch: %d", __func__, g_params->n_batch));
 		int32_t batch_size = std::min(g_params->n_batch, (int32_t)request_tokens.size());
+		// min of 1
+		batch_size = std::max(batch_size, 1);
 
+		UtilityFunctions::print(vformat("%s: Batch size: %d", __func__, batch_size));
 		llama_batch batch = llama_batch_init(batch_size, 0, 1);
 
 		// chunk request_tokens into sequences of size batch_size
+		UtilityFunctions::print(vformat("%s: Chunking request tokens", __func__));
 		std::vector<std::vector<llama_token>> sequences;
 		for (size_t i = 0; i < request_tokens.size(); i += batch_size) {
 			sequences.push_back(std::vector<llama_token>(request_tokens.begin() + i, request_tokens.begin() + std::min(i + batch_size, request_tokens.size())));
 		}
 
-		printf("Request tokens: \n");
-		for (auto sequence : sequences) {
-			for (auto token : sequence) {
-				printf("%s", llama_token_to_piece(ctx, token).c_str());
-			}
-		}
-		printf("\n");
+		UtilityFunctions::print(vformat("%s: Sequences: %d", __func__, (int32_t)sequences.size()));
+		// for (auto sequence : sequences) {
+		// 	for (auto token : sequence) {
+		// 		printf("%s", common_token_to_piece(g_ctx, token, true).c_str());
+		// 	}
+		// }
+		
 
 		int curr_token_pos = context_tokens.size();
 		bool decode_failed = false;
+		UtilityFunctions::print(vformat("%s: Decoding sequences", __func__));
 
+		// TODO: use the previous prompt so we dont need to re encode the same tokens
 		for (size_t i = 0; i < sequences.size(); i++) {
-			llama_batch_clear(batch);
+			common_batch_clear(batch);
 
 			std::vector<llama_token> sequence = sequences[i];
 
 			for (size_t j = 0; j < sequence.size(); j++) {
-				llama_batch_add(batch, sequence[j], j + curr_token_pos, { 0 }, false);
+				common_batch_add(batch, sequence[j], j + curr_token_pos, { 0 }, false);
 			}
 
 			curr_token_pos += sequence.size();
@@ -225,15 +270,16 @@ void LlamaContext::__thread_loop() {
 				batch.logits[batch.n_tokens - 1] = true;
 			}
 
-			if (llama_decode(ctx, batch) != 0) {
+			if (llama_decode(g_ctx, batch) != 0) {
 				decode_failed = true;
 				break;
 			}
 		}
 
-		printf("Request tokens: %d\n", (int32_t)request_tokens.size());
-		printf("Batch tokens: %d\n", batch.n_tokens);
-		printf("Current token pos: %d\n", curr_token_pos);
+
+		UtilityFunctions::print(vformat("%s: Request tokens: %d", __func__, (int32_t)request_tokens.size()));
+		UtilityFunctions::print(vformat("%s: Batch tokens: %d", __func__, batch.n_tokens));
+		UtilityFunctions::print(vformat("%s: Current token pos: %d", __func__, curr_token_pos));
 
 		if (decode_failed) {
 			Dictionary response;
@@ -244,15 +290,16 @@ void LlamaContext::__thread_loop() {
 		}
 
 		context_tokens.insert(context_tokens.end(), request_tokens.begin(), request_tokens.end());
-
+		UtilityFunctions::print(vformat("%s: Generating completions", __func__));
 		while (true) {
 			if (exit_thread) {
 				return;
 			}
+			// UtilityFunctions::print(vformat("%s: Generating completions...", __func__));
 			
-			llama_token new_token_id =  gpt_sampler_sample(smpl, ctx, -1);
+			llama_token new_token_id =  common_sampler_sample(g_smpl, g_ctx, -1);
 			// g_params->smpl->grmr is how to get grammar
-            gpt_sampler_accept(smpl, new_token_id, /* accept_grammar= */ false);
+            common_sampler_accept(g_smpl, new_token_id, /* accept_grammar= */ false);
 
 			Dictionary response;
 			response["id"] = req.id;
@@ -268,23 +315,24 @@ void LlamaContext::__thread_loop() {
 				break;
 			}
 
-			response["text"] = llama_token_to_piece(ctx, new_token_id).c_str();
+	
+			response["text"] = common_token_to_piece(g_ctx, new_token_id, true).c_str();
 			response["done"] = false;
 			call_thread_safe("emit_signal", "completion_generated", response);
 
-			llama_batch_clear(batch);
+			common_batch_clear(batch);
 
-			llama_batch_add(batch, new_token_id, curr_token_pos, { 0 }, true);
+			common_batch_add(batch, new_token_id, curr_token_pos, { 0 }, true);
 
 			curr_token_pos++;
 
-			if (llama_decode(ctx, batch) != 0) {
+			if (llama_decode(g_ctx, batch) != 0) {
 				decode_failed = true;
 				break;
 			}
 		}
 
-		gpt_sampler_reset(smpl);
+		common_sampler_reset(g_smpl);
 
 		if (decode_failed) {
 			Dictionary response;
@@ -392,11 +440,11 @@ void LlamaContext::_exit_tree() {
 
 	thread->wait_to_finish();
 
-	if (*g_ctx) {
-		llama_free(*g_ctx);
+	if (g_ctx) {
+		llama_free(g_ctx);
 	}
-	if (*g_smpl) {
-		gpt_sampler_free(*g_smpl);
+	if (g_smpl) {
+		common_sampler_free(g_smpl);
 	}
 	llama_backend_free();
 }

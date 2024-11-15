@@ -1,4 +1,7 @@
 CMakeLists.txt.user
 .vscode/settings.json
 /godot_llama_cpp-release
+/godot_llama_cpp-Release
+
 /godot_llama_cpp-debug
+/godot_llama_cpp-Debug

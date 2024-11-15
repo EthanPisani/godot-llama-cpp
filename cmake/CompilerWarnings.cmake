@@ -46,7 +46,7 @@ target_compile_options( ${PROJECT_NAME}
             -Wformat=2
             -Wnon-virtual-dtor
             -Wnull-dereference
-            -Wunused
+            # -Wunused
             -Wwrite-strings
 
             # Disable warnings which bleed through from godot-cpp's macros.
